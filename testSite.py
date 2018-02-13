@@ -14,9 +14,9 @@ cgitb.enable()
 # ----------------------------------------------------------*
 
 # contrast control variable
-alpha = 1.0 # simple brightness control, ranges from 0.5 to 2.5 in 0.1 steps.
-alpha_min = 0.5   
-alpha_max = 1.5
+alpha = 1 # simple brightness control, ranges from 0.5 to 2.5 in 0.1 steps.
+alpha_min = 1   
+alpha_max = 5
 alpha_range = int(alpha_max - alpha_min)*10
 
 # edge detection boolean
@@ -29,11 +29,17 @@ zoom_step = 1.5
 dX = disp_W/2  # delta x, used for keeping track of zoom center
 dY = disp_H/2  # delta y, used for keeping track of zoom center
 # standard image load information
-img_path = '/Users/SujieZhu/Downloads/test.jpg'  # sample image path
+img_path = 'nightExample2.jpg'  # sample image path
 # the img object stores the original image, with any contrast of filters made to it
 img = cv.imread(img_path)
 img = cv.resize(img, (disp_W, disp_H))
-img_adj = img  # image reference for keeping track contrast adjustments
+# keep an original copy without reading from the file
+img_org = img
+# image reference for keeping track of zoom display
+img_adj = img  
+# create CLAHE object for contrast adjustment
+clahe = cv.createCLAHE()
+# clipLimit=2.0, tileGridSize=(8,8) args for CLAHE creation
 
 # img_alpha={}
 # for x in range(1,alpha_range):
@@ -111,24 +117,12 @@ def zoomer(x, y, zoom):
         img_adj = cv.resize(img_adj, (disp_W, disp_H), 0,0,1)
         return img_adj  
 
-
-# Primary Contrast Control Extension
-#   Updates img to reflect the current global alpha setting 
-def contraster():
-    global alpha, img
-    # iterate through the pixels and multiply the individual pixel values by the constrast adjusting aplha
-    img[:, :, 0] = [[max(pixel*alpha, 0) if pixel*alpha < 256 else min(pixel*alpha, 255) for pixel in row] for row in img[:,:,0]]
-    img[:, :, 1] = [[max(pixel*alpha, 0) if pixel*alpha < 256 else min(pixel*alpha, 255) for pixel in row] for row in img[:,:,1]]
-    img[:, :, 2] = [[max(pixel*alpha, 0) if pixel*alpha < 256 else min(pixel*alpha, 255) for pixel in row] for row in img[:,:,2]]
-    return img
-
-
 # initial and original image update module
 @app.route('/image', methods=['GET', 'POST'])
 def image():
     global img, alpha, zoom, dX, dY, edges 
     # reset the contrast and zoom when returning to original state
-    alpha = 1.0 
+    alpha = 1
     zoom = 1
     edges = False
     dX = disp_W/2 
@@ -156,7 +150,6 @@ def zoom_ctrl():
         zoom -= 1
         img_adj = zoomer(x, y, zoom)
     return responder('image/jpg', img_adj)
-
 
 @app.route('/pan_ctrl', methods=['GET', 'POST'])
 def pan_ctrl():
@@ -195,32 +188,33 @@ def edge():
 # this module incriments the contrast
 @app.route('/contrast_plus')
 def contrast_plus():
-    global alpha 
-    global img
-    if alpha < 2.0:
-        alpha += 0.1
-    # img = contraster()
-    # TODO: Do we need to change the contrast enhancement code?
-    img_yuv = cv.cvtColor(img, cv.COLOR_BGR2YUV)
-
-    # equalize the histogram of the Y channel
-    img_yuv[:, :, 0] = cv.equalizeHist(img_yuv[:, :, 0])
-
-    # convert the YUV image back to RGB format
-    img_adj = cv.cvtColor(img_yuv, cv.COLOR_YUV2BGR)
-    # img_adj = cv.equalizeHist(img)
-    # img_adj = zoomer(dX, dY, zoom)
+    global alpha, img 
+    clahe = cv.createCLAHE(clipLimit=1.5, tileGridSize=(1,1))
+    if alpha < alpha_max:
+        alpha += 1
+        lab = cv.cvtColor(img, cv.COLOR_BGR2LAB)
+        l, a, b = cv.split(lab)
+        cl = clahe.apply(l)
+        limg = cv.merge((cl,a,b))    
+        img = cv.cvtColor(limg, cv.COLOR_LAB2BGR)
+    img_adj = zoomer(dX, dY, zoom)
     return responder('image/jpg', img_adj)
  
    
 # this module decriments the image contrast 
 @app.route('/contrast_minus')
 def contrast_minus():
-    global alpha
-    global img
-    if alpha > 0.5:
-        alpha -= 0.1
-    img = contraster()
+    global alpha, img, img_adj
+    clahe = cv.createCLAHE(clipLimit=1.5, tileGridSize=(1,1))
+    if alpha > 1:
+        alpha -= 1
+        img = img_org 
+        for i in range(1,int(alpha)):
+            lab = cv.cvtColor(img, cv.COLOR_BGR2LAB)
+            l, a, b = cv.split(lab)
+            cl = clahe.apply(l)
+            lab = cv.merge((cl,a,b))    
+            img = cv.cvtColor(lab, cv.COLOR_LAB2BGR)
     img_adj = zoomer(dX, dY, zoom)
     return responder('image/jpg', img_adj)
 
@@ -229,7 +223,7 @@ def contrast_minus():
 @app.route('/contrast_update', methods =['GET','POST'])
 def contrast_update():
     # the contrast bar returns a number between 0 and 100 that represents the current level of contrast adjustment.
-    if alpha < 1.0:
+    if alpha < 1:
         contrast_bar = (alpha - 0.5)*100
     else: 
         contrast_bar = alpha*50
@@ -245,7 +239,7 @@ def click():
     print(data)
     # TODO: this mechanism may be time consuming and memory consuming. Can we directly append to the json?
     # read in previous json file
-    with open('/Users/SujieZhu/study/UW/Volvo/annotator-test-master/data.json', 'r') as outfile:
+    with open('/data.json', 'r') as outfile:
         print(outfile)
         try:
             previous = json.load(outfile)
@@ -259,7 +253,7 @@ def click():
             previous['Positions'] = []
         previous['Labels'].append(data['catagrey'])
         previous['Positions'].append([data['x'], data['y'], data['w'], data['h']])
-    with open('/Users/SujieZhu/study/UW/Volvo/annotator-test-master/data.json', 'w') as outfile:
+    with open('/data.json', 'w') as outfile:
         json.dump(previous, outfile)
     img_adj = img
     cv.rectangle(img_adj, (data['x'], data['y']), (data['x']+data['w'], data['y']+data['h']), (0, 255, 0), 3)
