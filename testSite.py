@@ -29,7 +29,7 @@ zoom_step = 1.5
 dX = disp_W/2  # delta x, used for keeping track of zoom center
 dY = disp_H/2  # delta y, used for keeping track of zoom center
 # standard image load information
-img_path = 'nightExample2.jpg'  # sample image path
+img_path = 'nightExample.jpg'  # sample image path
 # the img object stores the original image, with any contrast of filters made to it
 img = cv.imread(img_path)
 img = cv.resize(img, (disp_W, disp_H))
@@ -239,26 +239,51 @@ def click():
     print(data)
     # TODO: this mechanism may be time consuming and memory consuming. Can we directly append to the json?
     # read in previous json file
-    with open('/data.json', 'r') as outfile:
+    with open('data.json', 'r') as outfile:
         print(outfile)
         try:
             previous = json.load(outfile)
         except:
             previous = {}
-        if 'raw_file' not in previous:
-            previous['raw_file'] = img_path
-        if 'Labels' not in previous:
-            previous['Labels'] = []
-        if 'Positions' not in previous:
-            previous['Positions'] = []
-        previous['Labels'].append(data['catagrey'])
-        previous['Positions'].append([data['x'], data['y'], data['w'], data['h']])
-    with open('/data.json', 'w') as outfile:
+        if data['type'] == 'box':
+            if 'raw_file' not in previous:
+                previous['raw_file'] = img_path
+            if 'Labels' not in previous:
+                previous['Labels'] = []
+            if 'Positions' not in previous:
+                previous['Positions'] = []
+            previous['Labels'].append(data['catagrey'])
+            previous['Positions'].append([data['x'], data['y'], data['w'], data['h']])
+        if data['type'] == 'line':
+            if 'raw_file' not in previous:
+                previous['raw_file'] = img_path
+            if 'labels' not in previous:
+                previous['labels'] = []
+            if 'h_samples' not in previous:
+                previous['h_samples'] = []
+            if 'lanes' not in previous:
+                previous['lanes'] = []
+            previous['Labels'].append(data['catagrey'])
+
+    with open('data.json', 'w') as outfile:
         json.dump(previous, outfile)
     img_adj = img
-    cv.rectangle(img_adj, (data['x'], data['y']), (data['x']+data['w'], data['y']+data['h']), (0, 255, 0), 3)
+    if data['type'] == 'line':
+        coordinate = []
+        for i in range(len(data['list'])):
+            point = []
+            point.append(data['list'][i]['x'])
+            point.append(data['list'][i]['y'])
+            coordinate.append(point)
+        print(coordinate)
+        print(data['catagrey'])
+        points = np.array(coordinate)
+        cv.polylines(img_adj, np.int32([points]), False, (255, 0, 0), 1)
+    else:
+        cv.rectangle(img_adj, (data['x'], data['y']), (data['x'] + data['w'], data['y'] + data['h']), (0, 255, 0), 3)
+
     return responder('image/jpg', img_adj)
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=8080)
+    app.run(debug=True, port=8000)
