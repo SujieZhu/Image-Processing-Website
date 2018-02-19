@@ -13,7 +13,7 @@
     <script>
         // extracted the basic onload function to simplify the code
         function basic_update_from_response(){
-            if (this.status === 200) {
+            if (this.status == 200) {
                 var blob = this.response;
                 var img = document.createElement("img");
                 img.onload = function (e) {
@@ -41,15 +41,23 @@
             xhr.setRequestHeader("Content-Type", "application/json");
             xhr.responseType = "blob";
             xhr.onload = basic_update_from_response;
-            if(record.type === 'box'){
-                var offset = $("#div1").offset();
+
+            // sending one single box, no longer in use
+            // if(record.type === 'single_box'){
+            //     xhr.send(JSON.stringify({
+            //         'x': record.startX, // parseInt(record.startX.split('p')[0], 10)- Math.round(offset.left),
+            //         'y': record.startY,//parseInt(record.startY.split('p')[0], 10)- Math.round(offset.top),
+            //         'h': record.h, //parseInt(record.h.split('p')[0], 10),
+            //         'w': record.w, // parseInt(record.w.split('p')[0], 10),
+            //         'type': record.type,
+            //         'catagrey': record.catagrey
+            //     }));
+            // }
+
+            if(record.type === 'boxes'){
                 xhr.send(JSON.stringify({
-                    'x': parseInt(record.startX.split('p')[0], 10)- Math.round(offset.left),
-                    'y': parseInt(record.startY.split('p')[0], 10)- Math.round(offset.top),
-                    'h': parseInt(record.h.split('p')[0], 10),
-                    'w': parseInt(record.w.split('p')[0], 10),
-                    'type': record.type,
-                    'catagrey': record.catagrey
+                    'list': record.list,
+                    'type': record.type
                 }));
             }
 
@@ -62,6 +70,46 @@
                 }));
             }
         }
+
+        // json file retrieving
+        function getMessage(url) {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', url, true);
+            xhr.onload = function () {
+                if (this.status == 200) {
+                    var msg = JSON.parse(this.responseText);
+                    // console.log(list);
+                    show_rect(msg);
+                }
+            };
+            xhr.send();
+        }
+
+        function show_rect(msg){
+            console.log(msg);
+            if (!msg.hasOwnProperty('Labels')) return;
+            var label = msg['Labels'];
+            var boxes = msg['Positions'];
+            console.log(label);
+            var offset = $("#div1").offset();
+            for (var i = 0; i < label.length; i++){
+                var box = document.createElement("div");
+                box.className = "box";
+                box.style.left = boxes[i][0] + offset.left + 'px';
+                box.style.top = boxes[i][1] + offset.top + 'px';
+                box.style.width = boxes[i][2]+ 'px';
+                box.style.height = boxes[i][3]+ 'px';
+                box.style.borderColor = 'red';
+                box.title = label[i];
+                document.body.appendChild(box);
+                var text = document.createElement('div');
+                text.textContent = label[i];
+                text.id = 'bx_class';
+                box.appendChild(text);
+                box = null;
+            }
+        }
+
 
     </script>
     <script type="text/javascript">
@@ -178,10 +226,19 @@
 
         var set = document.getElementById("set");
         set.addEventListener("click", set_type, false);
-        set.addEventListener("click", line_mousedown, false);
+
+        var del = document.getElementById("delete");
+        del.addEventListener("click", delete_rect, false);
+
+        var send = document.getElementById("send_all");
+        send.addEventListener("click", send_all, false);
+
+        var retrieve = document.getElementById("retrieve");
+        retrieve.addEventListener("click", retrieve_all, false);
 
         // remove all teh listener
         function reset_document(){
+            list = [];// refresh the polyline list
             document.removeEventListener('mousedown',rect_mousedown, false);
             document.removeEventListener('mousemove', rect_mousedown, false);
             document.removeEventListener('mouseup', rect_mousedown, false);
@@ -268,7 +325,7 @@
         // for resize the bounding box, need to add a small box in the bottom left corner
         function create_resize(e){
             var element = document.getElementById('moving_box');
-            if(element.childElementCount === 0){
+            if(element.childElementCount === 0 || element.firstChild.id === 'bx_class'){
                 var resizer = document.createElement('div');
                 resizer.className = 'resizer';
                 resizer.style.width = '8px';
@@ -278,30 +335,29 @@
                 resizer.style.right = 0;
                 resizer.style.bottom = 0;
                 resizer.style.cursor = 'se-resize';
-                element.appendChild(resizer);
+                if(element.childElementCount === 0) element.appendChild(resizer);
+                else element.insertBefore(resizer, element.lastChild);
                 resizer.addEventListener('mousedown', init_resize, false);
             }
         }
         function init_resize(e) {
-            var element = document.getElementById('moving_box');
-            element.addEventListener('mousemove', resize, false);
-            element.addEventListener('mouseup', stop_resize, false);
+            // var element = document.getElementById('moving_box');
+            window.addEventListener('mousemove', resize, false);
+            window.addEventListener('mouseup', stop_resize, false);
         }
         function resize(e) {
-            if(e.target.className.match(/resizer/)){
-                var element = e.target.parentElement;
-                element.style.width = (e.clientX - element.offsetLeft) + 'px';
-                element.style.height = (e.clientY - element.offsetTop) + 'px';
-            }
+            var element = document.getElementById('moving_box');
+            element.style.width = (e.clientX - element.offsetLeft) + 'px';
+            element.style.height = (e.clientY - element.offsetTop) + 'px';
 
         }
         function stop_resize(e) {
-            var element = document.getElementById('moving_box');
-            element.removeEventListener('mousemove', Resize, false);
-            element.removeEventListener('mouseup', stopResize, false);
+            // var element = document.getElementById('moving_box');
+            window.removeEventListener('mousemove', resize, false);
+            window.removeEventListener('mouseup', stop_resize, false);
         }
 
-        // set the bounding box info back to the server
+        // set a single bounding box info back to the server
         function set_type(){
             console.log("set");
             var x = document.getElementById("mySelect");
@@ -310,28 +366,84 @@
             if (document.getElementById("moving_box") !== null ) {
                 var mb = document.getElementById("moving_box");
                 mb.title = type;
-                var label = document.createElement('div');
-                label.textContent = type;
-                mb.appendChild(label);
-                x.selectedIndex = x.defaultSelected;
-                var record = {};
-                record.type = 'box';
 
-                record.catagrey = type;
-                record.startY = mb.style.top;
-                record.startX = mb.style.left;
-                record.w = mb.style.width;
-                record.h = mb.style.height;
-                sendMessage(record);
+                // remove previous label, only save one label
+                if (mb.childNodes.length === 2){
+                    var label = mb.lastChild;
+                    label.textContent = type
+                }
+                else {
+                    var label = document.createElement('div');
+                    label.textContent = type;
+                    label.id = 'bx_class';
+                    mb.appendChild(label);
+                }
+                x.selectedIndex = x.defaultSelected;
+
+                // send a single box back to the server, not in use
+                // var box = {};
+                // var record = {};
+                // var box_list = [];
+                // record.type = 'boxes';
+                // var offset = $("#div1").offset();
+                // box.catagrey = type;
+                // box.x = parseInt(mb.style.left.split('p')[0], 10)- Math.round(offset.left);
+                // box.y = parseInt(mb.style.top.split('p')[0], 10)- Math.round(offset.top);
+                // box.w = parseInt(mb.style.width.split('p')[0], 10);
+                // box.h = parseInt(mb.style.height.split('p')[0], 10);
+                // box_list.push(box);
+                // record.list = box_list;
+                // sendMessage(record);
             }
         }
+
+        // delete bounding box
+        function delete_rect(){
+            var box = document.getElementById("moving_box");
+            box.outerHTML = "";
+            delete box;
+        }
+
+
+        // send all the bounding boxes to back end
+        function send_all() {
+            console.log("send_all");
+            var box_list = [];
+            var record = {};
+            var box_collection =  document.getElementsByClassName('box');
+            record.type = 'boxes';
+            var offset = $("#div1").offset();
+            for (var i = 0; i < box_collection.length; i++){
+                var box = {};
+                var mb = box_collection[i];
+                box.catagrey = mb.title;
+                if(box.catagrey === '') {
+                    alert("Some bounding boxes are not classified");
+                    return;
+                }
+                box.x = parseInt(mb.style.left.split('p')[0], 10)- Math.round(offset.left);
+                box.y = parseInt(mb.style.top.split('p')[0], 10)- Math.round(offset.top);
+                box.w = parseInt(mb.style.width.split('p')[0], 10);
+                box.h = parseInt(mb.style.height.split('p')[0], 10);
+                box_list.push(box);
+            }
+            record.list = box_list;
+            sendMessage(record);
+        }
+
+
+        function retrieve_all(){
+            console.log("retrieve_all");
+            var url = '/retrieve';
+            getMessage(url);
+        }
+
+
 
         // for line drawing, TODO: for Kevin modify the three functions below
         function line_mousedown(e) {
             if(e.target.id.match('image')){
                 var offset = $("#div1").offset();
-                imgHeight = offset.height;
-                imgWidth = offset.width;
                 mouseX = e.pageX - offset.left;
                 mouseY = e.pageY - offset.top;
                 close = false;
@@ -348,8 +460,6 @@
         function line_mousemove(e) {
             console.log("move");
             if (drag) {
-                  var offsetX = 0;
-                  var offsetY = 0;
                   mouseX = e.pageX - offset.left;
                   mouseY = e.pageY - offset.top;
             }
@@ -396,13 +506,16 @@
                             <button class="btn btn-default" type="button" disabled>Create Shape</button>
                             <button class="btn btn-default" type="button" id ="bounding_box">Bounding box</button>
                             <button class="btn btn-default" type="button" id ="line">Line</button>
+                            <button class="btn btn-default" type="button" id ="reset">Reset</button>
                         </div>
                         <div class="btn-group" role="group" aria-label="...">
                             <button class="btn btn-default" type="button" disabled>Annotate</button>
                             <button class="btn btn-default" type="button" id="set">Set</button>
-                            <button class="btn btn-default" type="button" id ="reset">Reset</button>
+                            <button class="btn btn-default" type="button" id ="delete">Delete</button>
+                            <button class="btn btn-default" type="button" id ="send_all">Send</button>
+                            <button class="btn btn-default" type="button" id ="retrieve">retrieve</button>
                         </div>
-                        <div class="btn-group" role="group" aria-label="...">
+
                              <!-- 
                             <button type="button" class="btn btn-default" id="mySelect">Choose Type...</button>
                             <button selected="selected" type="button" class="btn btn-default dropdown-toggle" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
@@ -418,19 +531,16 @@
                                     <li><a value="roadEdge">Road Edge</a></li>
                                   </ul>
                             -->
-
-
-                               
                             <select id="mySelect">
                                 <option selected="selected">choose type</option>
                                 <option value="car">car</option>
                                 <option value="truck">truck</option>
-                                <option value="truck">pedestrian</option>
-                                <option value="truck">bicycle</option>
+                                <option value="pedestrian">pedestrian</option>
+                                <option value="bicycle">bicycle</option>
                                 <option value="whiteBroken">White Broken</option>
                                 <option value="roadEdge">Road Edge</option>
                             </select>
-                                                </div>
+
                     </div>
                 </div>
             </div>

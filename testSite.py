@@ -1,6 +1,6 @@
 from flask import Flask
 from flask import render_template
-from flask import make_response
+from flask import make_response, jsonify
 from flask import request
 import cv2 as cv
 import json
@@ -234,26 +234,33 @@ def contrast_update():
 @app.route('/click', methods =['GET','POST'])
 def click():
     global img
+    # show the images
+    img_adj = img
     data = request.json
     # check your json file
     print(data)
     # TODO: this mechanism may be time consuming and memory consuming. Can we directly append to the json?
     # read in previous json file
-    with open('data.json', 'r') as outfile:
-        print(outfile)
+    with open('data.json', 'r') as infile:
+        print(infile)
         try:
-            previous = json.load(outfile)
+            previous = json.load(infile)
         except:
             previous = {}
-        if data['type'] == 'box':
+        if data['type'] == 'boxes':
             if 'raw_file' not in previous:
                 previous['raw_file'] = img_path
             if 'Labels' not in previous:
                 previous['Labels'] = []
             if 'Positions' not in previous:
                 previous['Positions'] = []
-            previous['Labels'].append(data['catagrey'])
-            previous['Positions'].append([data['x'], data['y'], data['w'], data['h']])
+            for box in data['list']:
+                previous['Labels'].append(box['catagrey'])
+                previous['Positions'].append([box['x'], box['y'], box['w'], box['h']])
+                cv.rectangle(img_adj, (box['x'], box['y']), (box['x'] + box['w'], box['y'] + box['h']),
+                             (0, 255, 0), 3)
+
+
         if data['type'] == 'line':
             if 'raw_file' not in previous:
                 previous['raw_file'] = img_path
@@ -263,11 +270,13 @@ def click():
                 previous['h_samples'] = []
             if 'lanes' not in previous:
                 previous['lanes'] = []
-            previous['Labels'].append(data['catagrey'])
+            previous['labels'].append(data['catagrey'])
 
     with open('data.json', 'w') as outfile:
         json.dump(previous, outfile)
-    img_adj = img
+
+
+
     if data['type'] == 'line':
         coordinate = []
         for i in range(len(data['list'])):
@@ -279,11 +288,21 @@ def click():
         print(data['catagrey'])
         points = np.array(coordinate)
         cv.polylines(img_adj, np.int32([points]), False, (255, 0, 0), 1)
-    else:
-        cv.rectangle(img_adj, (data['x'], data['y']), (data['x'] + data['w'], data['y'] + data['h']), (0, 255, 0), 3)
+
 
     return responder('image/jpg', img_adj)
 
+
+# using this to get the rect info and append to a json file
+# TODO: update this interface to support line json format
+@app.route('/retrieve', methods =['GET','POST'])
+def retrieve():
+    with open('data.json', 'r') as f:
+        try:
+            content = json.load(f)
+        except:
+            content = {}
+        return jsonify(content)
 
 if __name__ == '__main__':
     app.run(debug=True, port=8000)
